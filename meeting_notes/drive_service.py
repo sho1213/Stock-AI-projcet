@@ -11,8 +11,10 @@ from pathlib import Path
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from google.auth.transport.requests import Request
+import google_auth_httplib2
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaInMemoryUpload
+import httplib2
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +88,12 @@ def authenticate():
 def get_services():
     """Google Drive APIとDocs APIのサービスオブジェクトを返す。"""
     creds = authenticate()
-    drive = build("drive", "v3", credentials=creds)
-    docs = build("docs", "v1", credentials=creds)
+    http = google_auth_httplib2.AuthorizedHttp(
+        creds,
+        http=httplib2.Http(disable_ssl_certificate_validation=True),
+    )
+    drive = build("drive", "v3", http=http)
+    docs = build("docs", "v1", http=http)
     return drive, docs
 
 
