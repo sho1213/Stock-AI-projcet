@@ -1,0 +1,13 @@
+# 認証情報（絶対にコミットしない）
+credentials.json
+token.json
+.env
+
+# 実行時に自動生成されるファイル
+processed_videos.json
+meeting_notes.log
+cron_execution.log
+
+# Python
+__pycache__/
+*.pyc
