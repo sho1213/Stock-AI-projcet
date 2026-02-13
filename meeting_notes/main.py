@@ -69,7 +69,8 @@ def run(dry_run=False):
 
     shared_drive_name = os.getenv("SHARED_DRIVE_NAME", "Jupiter folder")
     source_folder_name = os.getenv("SOURCE_FOLDER_NAME", "02_録画データ_all")
-    target_folder_name = os.getenv("TARGET_FOLDER_NAME", "チーム石川の議事録")
+    target_parent_folder_name = os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川")
+    target_folder_name = os.getenv("TARGET_FOLDER_NAME", "議事録")
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     # Gemini APIの設定
@@ -88,8 +89,11 @@ def run(dry_run=False):
         drive_svc, source_folder_name, shared_drive_id
     )
 
-    logger.info(f"出力フォルダ '{target_folder_name}' を検索中...")
-    target_folder_id = ds.find_folder_in_my_drive(drive_svc, target_folder_name)
+    logger.info(f"出力フォルダ '{target_parent_folder_name}/{target_folder_name}' を検索中...")
+    parent_folder_id = ds.find_folder_in_my_drive(drive_svc, target_parent_folder_name)
+    target_folder_id = ds.find_folder_in_my_drive(
+        drive_svc, target_folder_name, parent_id=parent_folder_id
+    )
 
     # 動画ファイルの一覧を取得
     logger.info("動画ファイルを検索中...")

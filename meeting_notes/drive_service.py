@@ -113,14 +113,24 @@ def find_folder_in_shared_drive(drive_service, folder_name, drive_id):
     return files[0]["id"]
 
 
-def find_folder_in_my_drive(drive_service, folder_name):
-    """マイドライブ内のフォルダを名前で検索し、IDを返す。なければ作成。"""
+def find_folder_in_my_drive(drive_service, folder_name, parent_id=None):
+    """マイドライブ内のフォルダを名前で検索し、IDを返す。なければ作成。
+
+    Args:
+        drive_service: Google Drive APIサービス
+        folder_name: フォルダ名
+        parent_id: 親フォルダのID（指定時はその中から検索）
+    """
     q = (
         f"name = '{folder_name}' "
         f"and mimeType = 'application/vnd.google-apps.folder' "
-        f"and trashed = false "
-        f"and 'me' in owners"
+        f"and trashed = false"
     )
+    if parent_id:
+        q += f" and '{parent_id}' in parents"
+    else:
+        q += " and 'me' in owners"
+
     results = (
         drive_service.files()
         .list(q=q, fields="files(id, name)", spaces="drive")
@@ -129,7 +139,7 @@ def find_folder_in_my_drive(drive_service, folder_name):
     files = results.get("files", [])
     if files:
         logger.info(
-            f"出力フォルダ発見: {files[0]['name']} (ID: {files[0]['id']})"
+            f"フォルダ発見: {files[0]['name']} (ID: {files[0]['id']})"
         )
         return files[0]["id"]
 
@@ -138,13 +148,15 @@ def find_folder_in_my_drive(drive_service, folder_name):
         "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
     }
+    if parent_id:
+        file_metadata["parents"] = [parent_id]
     folder = (
         drive_service.files()
         .create(body=file_metadata, fields="id, name")
         .execute()
     )
     logger.info(
-        f"出力フォルダを作成: {folder['name']} (ID: {folder['id']})"
+        f"フォルダを作成: {folder['name']} (ID: {folder['id']})"
     )
     return folder["id"]
 
