@@ -5,10 +5,11 @@
 
 import io
 import logging
+import os
 from pathlib import Path
 
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaInMemoryUpload
@@ -38,7 +39,8 @@ CREDENTIALS_PATH = BASE_DIR / "credentials.json"
 def authenticate():
     """OAuth2認証を行い、credentialsを返す。
 
-    初回はブラウザでのログインが必要。以降はtoken.jsonで自動認証。
+    初回はURLを表示し、認証コードを入力してもらう方式。
+    以降はtoken.jsonで自動認証。
     """
     creds = None
     if TOKEN_PATH.exists():
@@ -53,10 +55,28 @@ def authenticate():
                     f"credentials.json が見つかりません: {CREDENTIALS_PATH}\n"
                     "setup_guide.md を参照してOAuth2クライアントIDを設定してください。"
                 )
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(CREDENTIALS_PATH), SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+            # ブラウザが使える環境ではローカルサーバー方式、
+            # なければURL表示＋認証コード入力方式
+            if os.environ.get("DISPLAY") or os.environ.get("BROWSER"):
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    str(CREDENTIALS_PATH), SCOPES
+                )
+                creds = flow.run_local_server(port=0)
+            else:
+                flow = Flow.from_client_secrets_file(
+                    str(CREDENTIALS_PATH),
+                    scopes=SCOPES,
+                    redirect_uri="urn:ietf:wg:oauth:2.0:oob",
+                )
+                auth_url, _ = flow.authorization_url(prompt="consent")
+                print("\n" + "=" * 60)
+                print("以下のURLをブラウザで開いてGoogleアカウントでログインしてください:")
+                print(f"\n  {auth_url}\n")
+                print("ログイン後に表示される認証コードを貼り付けてください。")
+                print("=" * 60)
+                code = input("\n認証コード: ").strip()
+                flow.fetch_token(code=code)
+                creds = flow.credentials
         with open(TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
 
