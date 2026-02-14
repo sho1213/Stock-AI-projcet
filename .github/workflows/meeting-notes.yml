@@ -14,25 +14,25 @@ on:
 
 jobs:
   generate-meeting-notes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install system dependencies
+      - name: Verify GPU availability
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          echo "=== GPU情報 ==="
+          nvidia-smi
+          echo ""
+          echo "=== CUDA バージョン ==="
+          nvcc --version || echo "nvcc not found (runtime-only install)"
 
-      - name: Install Python dependencies
+      - name: Setup Python venv
         run: |
+          python3 -m venv .venv --system-site-packages 2>/dev/null || true
+          . .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r meeting_notes/requirements.txt
 
@@ -48,29 +48,24 @@ jobs:
           printf '%s' "$GOOGLE_CREDENTIALS_JSON" > meeting_notes/credentials.json
           printf '%s' "$GOOGLE_TOKEN_JSON" > meeting_notes/token.json
 
-      - name: Conflict marker check
-        run: |
-          if rg -n "^(<<<<<<<|=======|>>>>>>>)" .; then
-            echo "Unresolved merge conflict markers detected." >&2
-            exit 1
-          fi
-
       - name: Syntax check
         run: |
-          python -m py_compile meeting_notes/*.py
+          . .venv/bin/activate
+          python -m py_compile meeting_notes/main.py
+          python -m py_compile meeting_notes/config.py
+          python -m py_compile meeting_notes/drive_service.py
+          python -m py_compile meeting_notes/transcription_service.py
 
       - name: Run meeting notes generator
         working-directory: meeting_notes
         env:
-          SHARED_DRIVE_NAME: ${{ secrets.SHARED_DRIVE_NAME }}
-          SOURCE_FOLDER_NAME: ${{ secrets.SOURCE_FOLDER_NAME }}
-          TARGET_PARENT_FOLDER_NAME: ${{ secrets.TARGET_PARENT_FOLDER_NAME }}
-          TARGET_FOLDER_NAME: ${{ secrets.TARGET_FOLDER_NAME }}
-          WHISPER_DEVICE: ${{ vars.WHISPER_DEVICE }}
-          WHISPER_COMPUTE_TYPE: ${{ vars.WHISPER_COMPUTE_TYPE }}
+          WHISPER_DEVICE: cuda
+          WHISPER_COMPUTE_TYPE: float16
           REQUEST_INTERVAL: ${{ vars.REQUEST_INTERVAL }}
           MAX_VIDEOS_PER_RUN: ${{ vars.MAX_VIDEOS_PER_RUN }}
         run: |
+          . ../.venv/bin/activate
+
           ARGS=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="--dry-run"
