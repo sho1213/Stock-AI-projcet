@@ -52,20 +52,11 @@ def load_config(base_dir: Path, logger):
     """環境変数を読み込み、設定辞書を返す。"""
     load_dotenv(base_dir / ".env")
 
-    request_interval = _as_non_negative(
-        _get_env_int("REQUEST_INTERVAL", 5, logger), 5, "REQUEST_INTERVAL", logger
-    )
-    max_videos = _as_non_negative(
-        _get_env_int("MAX_VIDEOS_PER_RUN", 10, logger), 10, "MAX_VIDEOS_PER_RUN", logger
-    )
-
     return {
         "shared_drive_name": _get_env_str("SHARED_DRIVE_NAME", ""),
         "source_folder_name": _get_env_str("SOURCE_FOLDER_NAME", "録画データ_all"),
         "target_parent_folder_name": _get_env_str("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
         "target_folder_name": _get_env_str("TARGET_FOLDER_NAME", "議事録"),
-        "request_interval": request_interval,
-        "max_videos": max_videos,
         "whisper_device": _get_env_str("WHISPER_DEVICE", "cpu"),
         "whisper_compute_type": _get_env_str("WHISPER_COMPUTE_TYPE", "int8"),
     }
