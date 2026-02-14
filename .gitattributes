@@ -1,0 +1,3 @@
+# Reduce merge conflicts for frequently updated docs/config examples
+meeting_notes/.env.example merge=union
+meeting_notes/setup_guide.md merge=union

@@ -31,4 +31,3 @@ python main.py --dry-run  # 対象確認
 python main.py            # 本実行
 ```
 
-## 4. 定期実行

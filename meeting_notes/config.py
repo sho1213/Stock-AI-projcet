@@ -57,6 +57,7 @@ def load_config(base_dir: Path, logger):
         "source_folder_name": _get_env_str("SOURCE_FOLDER_NAME", "録画データ_all"),
         "target_parent_folder_name": _get_env_str("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
         "target_folder_name": _get_env_str("TARGET_FOLDER_NAME", "議事録"),
+
         "whisper_device": _get_env_str("WHISPER_DEVICE", "cpu"),
         "whisper_compute_type": _get_env_str("WHISPER_COMPUTE_TYPE", "int8"),
     }

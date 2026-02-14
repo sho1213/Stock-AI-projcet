@@ -48,6 +48,17 @@ jobs:
           printf '%s' "$GOOGLE_CREDENTIALS_JSON" > meeting_notes/credentials.json
           printf '%s' "$GOOGLE_TOKEN_JSON" > meeting_notes/token.json
 
+      - name: Conflict marker check
+        run: |
+          if rg -n "^(<<<<<<<|=======|>>>>>>>)" .; then
+            echo "Unresolved merge conflict markers detected." >&2
+            exit 1
+          fi
+
+      - name: Syntax check
+        run: |
+          python -m py_compile meeting_notes/*.py
+
       - name: Run meeting notes generator
         working-directory: meeting_notes
         env:

@@ -273,14 +273,12 @@ def run(dry_run=False):
     if not videos:
         logger.info("処理対象の動画ファイルが見つかりませんでした。")
         return
-
     # 未処理の動画をフィルタリング
     processed = load_processed()
     existing_docs = ds.list_docs_in_folder(drive_svc, target_folder_id)
     unprocessed = _filter_unprocessed(videos, processed, existing_docs)
     # 既存ドキュメント判定で更新された状態を早めに保存しておく
     save_processed(processed)
-
     if not unprocessed:
         logger.info("新しい動画はありません。全て処理済みです。")
         save_processed(processed)
