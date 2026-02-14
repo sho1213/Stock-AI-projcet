@@ -32,33 +32,8 @@ python main.py            # 本実行
 ```
 
 ## 4. 定期実行
-
-### GitHub Actions（推奨）
-`.github/workflows/meeting-notes.yml` は `0 21 * * *`（JST 06:00）で毎日実行。
-
-Secrets:
-- `GOOGLE_CREDENTIALS_JSON`
-- `GOOGLE_TOKEN_JSON`
-- `SHARED_DRIVE_NAME`（共有アイテム運用なら空文字）
-- `SOURCE_FOLDER_NAME`
-- `TARGET_PARENT_FOLDER_NAME`
-- `TARGET_FOLDER_NAME`
-
-Variables（任意）:
-- `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`
-- `REQUEST_INTERVAL`, `MAX_VIDEOS_PER_RUN`
-
-### cron
-`meeting_notes/cron_setup.sh` を実行すると毎日6時実行のcronを作成。
-
-## 5. スキップ仕様
-
 以下は再生成しません。
 - `processed_videos.json` に成功済み記録がある動画
 - 同名議事録（`【議事録】<動画名>`）がすでに保存済みの動画
 
-## 6. 精度と処理時間
 
-- モデルは精度優先の `large-v3` 固定です。
-- 長時間動画が多い場合、1日あたり件数は `MAX_VIDEOS_PER_RUN` で制御してください。
-- CPU性能に応じて `WHISPER_COMPUTE_TYPE` を調整してください（例: `int8`）。

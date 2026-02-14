@@ -34,6 +34,7 @@ class JapaneseTranscriber:
 
     def transcribe(self, media_path: str, vad_filter: bool = True, beam_size: int = 5):
         """音声/動画を日本語で書き起こす。"""
+
         segments, info = self.model.transcribe(
             media_path,
             language="ja",
@@ -43,12 +44,6 @@ class JapaneseTranscriber:
             condition_on_previous_text=True,
             temperature=0.0,
         )
-        segment_list = list(segments)
-        logger.info(
-            "書き起こし完了: 検出言語=%s, 推定時間=%.1f秒, セグメント数=%d",
-            info.language,
-            info.duration,
-            len(segment_list),
         )
         return segment_list
 

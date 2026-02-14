@@ -79,9 +79,10 @@ def convert_to_mp3(video_path):
         )
         video_size = os.path.getsize(video_path) / MB
         mp3_size = os.path.getsize(mp3_path) / MB
+        reduced_ratio = (mp3_size / video_size * 100) if video_size > 0 else 0
         logger.info(
             f"  MP3変換完了: {video_size:.1f}MB → {mp3_size:.1f}MB "
-            f"({mp3_size / video_size * 100:.0f}%に削減)"
+            f"({reduced_ratio:.0f}%に削減)"
         )
         return mp3_path
     except FileNotFoundError:
@@ -181,15 +182,16 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
 
         # Whisperで日本語書き起こしを実行
         logger.info("  日本語書き起こしを実行中...")
-        segments = transcriber.transcribe(media_path)
-        notes = ts.render_meeting_notes(video_name, segments)
+
 
         # Googleドキュメントとして保存
         doc_title = make_doc_title(video_name)
         logger.info(f"  Googleドキュメントを作成中: {doc_title}")
+        save_start = time.perf_counter()
         doc_id = ds.create_google_doc(
             drive_svc, docs_svc, doc_title, notes, target_folder_id
         )
+        logger.info("  Googleドキュメント保存完了（%.1f秒）", time.perf_counter() - save_start)
 
         # 処理済みとして記録
         processed[video_id] = {
@@ -236,13 +238,6 @@ def run(dry_run=False):
             "ffmpegが見つかりません。MP4のまま処理します。"
             "faster-whisperのためffmpegのインストールを推奨します。"
         )
-
-    # 書き起こしモデルの準備・認証
-    transcriber = ts.JapaneseTranscriber(
-        compute_type=config["whisper_compute_type"],
-        device=config["whisper_device"],
-    )
-
     logger.info("Google Drive APIに接続中...")
     drive_svc, docs_svc = ds.get_services()
 
@@ -275,6 +270,8 @@ def run(dry_run=False):
     processed = load_processed()
     existing_docs = ds.list_docs_in_folder(drive_svc, target_folder_id)
     unprocessed = _filter_unprocessed(videos, processed, existing_docs)
+    # 既存ドキュメント判定で更新された状態を早めに保存しておく
+    save_processed(processed)
 
     if not unprocessed:
         logger.info("新しい動画はありません。全て処理済みです。")
@@ -299,7 +296,6 @@ def run(dry_run=False):
             logger.info(f"  - {video['name']} ({size_mb:.1f} MB)")
         return
 
-    # 書き起こしモデルをロード
     transcriber = ts.JapaneseTranscriber(
         compute_type=config["whisper_compute_type"],
         device=config["whisper_device"],
