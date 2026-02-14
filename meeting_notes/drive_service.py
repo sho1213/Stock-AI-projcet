@@ -10,6 +10,7 @@ from pathlib import Path
 
 import google_auth_httplib2
 import httplib2
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -50,30 +51,34 @@ def authenticate():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError as e:
+                logger.warning(f"トークンのリフレッシュに失敗しました: {e}")
+                logger.warning(
+                    "リフレッシュトークンが期限切れの可能性があります。"
+                    "ローカルで 'python auth.py' を再実行して token.json を更新してください。"
+                )
+                creds = None
+        if creds is None or not creds.valid:
             if not CREDENTIALS_PATH.exists():
                 raise FileNotFoundError(
                     f"credentials.json が見つかりません: {CREDENTIALS_PATH}\n"
                     "setup_guide.md を参照してOAuth2クライアントIDを設定してください。"
                 )
-            # デスクトップ環境（Windows / Linux GUI）ではローカルサーバー方式
-            is_desktop = (
-                sys.platform == "win32"
-                or sys.platform == "darwin"
-                or os.environ.get("DISPLAY")
-                or os.environ.get("BROWSER")
+            flow = InstalledAppFlow.from_client_secrets_file(
+                str(CREDENTIALS_PATH), SCOPES
             )
-            if is_desktop:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(CREDENTIALS_PATH), SCOPES
-                )
+            # ブラウザが使える環境ではローカルサーバー方式で認証
+            try:
                 creds = flow.run_local_server(port=0)
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(CREDENTIALS_PATH), SCOPES
+            except Exception:
+                raise RuntimeError(
+                    "ブラウザが利用できない環境では自動認証ができません。\n"
+                    "以下のいずれかの方法で認証してください:\n"
+                    "  1. ローカルPCで 'python auth.py' を実行して token.json を生成\n"
+                    "  2. ブラウザが使える環境で 'python main.py --dry-run' を実行"
                 )
-                creds = flow.run_console()
         with open(TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
 
