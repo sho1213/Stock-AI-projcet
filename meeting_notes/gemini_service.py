@@ -8,6 +8,10 @@ import time
 
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
+from google.generativeai.types import (
+    BlockedPromptException,
+    StopCandidateException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +107,8 @@ def generate_meeting_notes(media_path, model_name="gemini-2.0-flash"):
                 ),
             )
             break
-        except (ResourceExhausted, Exception) as e:
-            is_rate_limit = isinstance(e, ResourceExhausted) or "429" in str(e)
-            if not is_rate_limit or attempt == MAX_RETRIES:
-                # レート制限以外のエラー、またはリトライ上限に達した場合
+        except ResourceExhausted as e:
+            if attempt == MAX_RETRIES:
                 _cleanup_file(uploaded_file)
                 raise
             wait = INITIAL_RETRY_WAIT * (2 ** attempt)
@@ -115,11 +117,30 @@ def generate_meeting_notes(media_path, model_name="gemini-2.0-flash"):
                 f"({attempt + 1}/{MAX_RETRIES})"
             )
             time.sleep(wait)
+        except Exception as e:
+            if "429" in str(e) and attempt < MAX_RETRIES:
+                wait = INITIAL_RETRY_WAIT * (2 ** attempt)
+                logger.warning(
+                    f"  レート制限に到達。{wait}秒待機後にリトライします "
+                    f"({attempt + 1}/{MAX_RETRIES})"
+                )
+                time.sleep(wait)
+            else:
+                _cleanup_file(uploaded_file)
+                raise
 
     # アップロードしたファイルを削除
     _cleanup_file(uploaded_file)
 
-    return response.text
+    # レスポンスの安全フィルタチェック
+    try:
+        result_text = response.text
+    except (BlockedPromptException, StopCandidateException, ValueError) as e:
+        raise RuntimeError(
+            f"Gemini APIが安全フィルタによりコンテンツをブロックしました: {e}"
+        )
+
+    return result_text
 
 
 def _cleanup_file(uploaded_file):
