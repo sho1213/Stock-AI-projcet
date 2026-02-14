@@ -15,16 +15,14 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 import drive_service as ds
 import gemini_service as gs
+from config import load_config
 
 BASE_DIR = Path(__file__).parent
 PROCESSED_LOG = BASE_DIR / "processed_videos.json"
@@ -95,27 +93,6 @@ def convert_to_mp3(video_path):
     except subprocess.CalledProcessError as e:
         logger.warning(f"  MP3変換に失敗しました。MP4のまま処理します: {e.stderr}")
         return None
-
-
-def _load_config():
-    """環境変数を読み込み、設定辞書を返す。"""
-    load_dotenv(BASE_DIR / ".env")
-
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-        logger.error("GEMINI_API_KEY が設定されていません。.env ファイルを確認してください。")
-        sys.exit(1)
-
-    return {
-        "gemini_api_key": gemini_api_key,
-        "shared_drive_name": os.getenv("SHARED_DRIVE_NAME", "Jupiter folder"),
-        "source_folder_name": os.getenv("SOURCE_FOLDER_NAME", "02_録画データ_all"),
-        "target_parent_folder_name": os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
-        "target_folder_name": os.getenv("TARGET_FOLDER_NAME", "議事録"),
-        "gemini_model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-        "request_interval": int(os.getenv("REQUEST_INTERVAL", "30")),
-        "max_videos": int(os.getenv("MAX_VIDEOS_PER_RUN", "50")),
-    }
 
 
 def _find_source_folder(drive_svc, shared_drive_name, source_folder_name):
@@ -247,7 +224,7 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
 
 def run(dry_run=False):
     """メイン処理を実行する。"""
-    config = _load_config()
+    config = load_config(BASE_DIR, logger)
 
     # ffmpegの有無を確認
     has_ffmpeg = shutil.which("ffmpeg") is not None
