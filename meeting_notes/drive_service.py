@@ -135,6 +135,33 @@ def find_folder_in_shared_drive(drive_service, folder_name, drive_id):
     return files[0]["id"]
 
 
+def find_folder_in_shared_items(drive_service, folder_name):
+    """共有アイテム内のフォルダを名前で検索し、IDを返す。"""
+    q = (
+        f"name = '{folder_name}' "
+        f"and mimeType = 'application/vnd.google-apps.folder' "
+        f"and trashed = false "
+        f"and sharedWithMe = true"
+    )
+    results = (
+        drive_service.files()
+        .list(
+            q=q,
+            fields="files(id, name)",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+    files = results.get("files", [])
+    if not files:
+        raise ValueError(
+            f"フォルダ '{folder_name}' が共有アイテム内に見つかりません"
+        )
+    logger.info(f"ソースフォルダ発見（共有アイテム）: {files[0]['name']} (ID: {files[0]['id']})")
+    return files[0]["id"]
+
+
 def find_folder_in_my_drive(drive_service, folder_name, parent_id=None):
     """マイドライブ内のフォルダを名前で検索し、IDを返す。なければ作成。
 
@@ -183,8 +210,14 @@ def find_folder_in_my_drive(drive_service, folder_name, parent_id=None):
     return folder["id"]
 
 
-def list_videos_in_folder(drive_service, folder_id, drive_id):
-    """指定フォルダ内の全動画ファイルをリストアップ。"""
+def list_videos_in_folder(drive_service, folder_id, drive_id=None):
+    """指定フォルダ内の全動画ファイルをリストアップ。
+
+    Args:
+        drive_service: Google Drive APIサービス
+        folder_id: フォルダID
+        drive_id: 共有ドライブID（共有アイテムの場合はNone）
+    """
     mime_query = " or ".join(
         [f"mimeType = '{mt}'" for mt in VIDEO_MIME_TYPES]
     )
@@ -197,12 +230,13 @@ def list_videos_in_folder(drive_service, folder_id, drive_id):
             "q": q,
             "fields": "nextPageToken, files(id, name, mimeType, createdTime, size)",
             "orderBy": "createdTime",
-            "corpora": "drive",
-            "driveId": drive_id,
             "includeItemsFromAllDrives": True,
             "supportsAllDrives": True,
             "pageSize": 100,
         }
+        if drive_id:
+            kwargs["corpora"] = "drive"
+            kwargs["driveId"] = drive_id
         if page_token:
             kwargs["pageToken"] = page_token
         results = drive_service.files().list(**kwargs).execute()

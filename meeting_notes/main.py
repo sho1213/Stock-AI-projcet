@@ -80,14 +80,25 @@ def run(dry_run=False):
     logger.info("Google Drive APIに接続中...")
     drive_svc, docs_svc = ds.get_services()
 
-    # 共有ドライブとフォルダを特定
-    logger.info(f"共有ドライブ '{shared_drive_name}' を検索中...")
-    shared_drive_id = ds.find_shared_drive(drive_svc, shared_drive_name)
+    # ソースフォルダを特定（共有ドライブ or 共有アイテム）
+    shared_drive_id = None
+    if shared_drive_name:
+        try:
+            logger.info(f"共有ドライブ '{shared_drive_name}' を検索中...")
+            shared_drive_id = ds.find_shared_drive(drive_svc, shared_drive_name)
+            logger.info(f"ソースフォルダ '{source_folder_name}' を検索中...")
+            source_folder_id = ds.find_folder_in_shared_drive(
+                drive_svc, source_folder_name, shared_drive_id
+            )
+        except ValueError:
+            logger.info("共有ドライブが見つかりません。共有アイテムから検索します...")
+            shared_drive_id = None
 
-    logger.info(f"ソースフォルダ '{source_folder_name}' を検索中...")
-    source_folder_id = ds.find_folder_in_shared_drive(
-        drive_svc, source_folder_name, shared_drive_id
-    )
+    if not shared_drive_id:
+        logger.info(f"共有アイテムからフォルダ '{source_folder_name}' を検索中...")
+        source_folder_id = ds.find_folder_in_shared_items(
+            drive_svc, source_folder_name
+        )
 
     logger.info(f"出力フォルダ '{target_parent_folder_name}/{target_folder_name}' を検索中...")
     parent_folder_id = ds.find_folder_in_my_drive(drive_svc, target_parent_folder_name)
@@ -97,7 +108,7 @@ def run(dry_run=False):
 
     # 動画ファイルの一覧を取得
     logger.info("動画ファイルを検索中...")
-    videos = ds.list_videos_in_folder(drive_svc, source_folder_id, shared_drive_id)
+    videos = ds.list_videos_in_folder(drive_svc, source_folder_id, drive_id=shared_drive_id)
 
     if not videos:
         logger.info("処理対象の動画ファイルが見つかりませんでした。")
