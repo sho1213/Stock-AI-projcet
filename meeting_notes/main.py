@@ -297,6 +297,8 @@ def run(dry_run=False):
     # 各動画を処理
     success_count = 0
     error_count = 0
+    consecutive_errors = 0
+    max_consecutive_errors = 3
     request_interval = config["request_interval"]
 
     for i, video in enumerate(unprocessed, 1):
@@ -312,8 +314,16 @@ def run(dry_run=False):
         )
         if ok:
             success_count += 1
+            consecutive_errors = 0
         else:
             error_count += 1
+            consecutive_errors += 1
+            if consecutive_errors >= max_consecutive_errors:
+                logger.error(
+                    f"{max_consecutive_errors} 件連続でエラーが発生したため処理を中断します。"
+                    "API枠の超過やネットワーク障害の可能性があります。"
+                )
+                break
 
         # 次の処理まで待機（レート制限対策）
         if i < len(unprocessed) and request_interval > 0:
