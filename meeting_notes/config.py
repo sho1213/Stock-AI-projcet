@@ -1,7 +1,6 @@
 """設定読み込みユーティリティ。"""
 
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -36,22 +35,37 @@ def _get_env_int(name, default, logger):
         return default
 
 
+def _as_non_negative(value, default, name, logger):
+    """負数を許可しない設定値を正規化する。"""
+    if value < 0:
+        logger.warning(
+            "%s の値 %d は負数のため、デフォルト値 %d を使用します。",
+            name,
+            value,
+            default,
+        )
+        return default
+    return value
+
+
 def load_config(base_dir: Path, logger):
     """環境変数を読み込み、設定辞書を返す。"""
     load_dotenv(base_dir / ".env")
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-        logger.error("GEMINI_API_KEY が設定されていません。.env ファイルを確認してください。")
-        sys.exit(1)
+    request_interval = _as_non_negative(
+        _get_env_int("REQUEST_INTERVAL", 5, logger), 5, "REQUEST_INTERVAL", logger
+    )
+    max_videos = _as_non_negative(
+        _get_env_int("MAX_VIDEOS_PER_RUN", 10, logger), 10, "MAX_VIDEOS_PER_RUN", logger
+    )
 
     return {
-        "gemini_api_key": gemini_api_key,
         "shared_drive_name": _get_env_str("SHARED_DRIVE_NAME", ""),
         "source_folder_name": _get_env_str("SOURCE_FOLDER_NAME", "録画データ_all"),
         "target_parent_folder_name": _get_env_str("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
         "target_folder_name": _get_env_str("TARGET_FOLDER_NAME", "議事録"),
-        "gemini_model": _get_env_str("GEMINI_MODEL", "gemini-2.0-flash"),
-        "request_interval": _get_env_int("REQUEST_INTERVAL", 30, logger),
-        "max_videos": _get_env_int("MAX_VIDEOS_PER_RUN", 50, logger),
+        "request_interval": request_interval,
+        "max_videos": max_videos,
+        "whisper_device": _get_env_str("WHISPER_DEVICE", "cpu"),
+        "whisper_compute_type": _get_env_str("WHISPER_COMPUTE_TYPE", "int8"),
     }
