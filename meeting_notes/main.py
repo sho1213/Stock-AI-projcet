@@ -41,10 +41,19 @@ logger = logging.getLogger(__name__)
 
 def load_processed():
     """処理済み動画IDの記録を読み込む。"""
-    if PROCESSED_LOG.exists():
+    if not PROCESSED_LOG.exists():
+        return {}
+
+    try:
         with open(PROCESSED_LOG, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            logger.warning("processed_videos.json の形式が不正なため初期化します")
+            return {}
+    except json.JSONDecodeError:
+        logger.warning("processed_videos.json のJSONが壊れているため初期化します")
+        return {}
 
 
 def save_processed(processed):
@@ -182,7 +191,6 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
 
         # Whisperで日本語書き起こしを実行
         logger.info("  日本語書き起こしを実行中...")
-
 
         # Googleドキュメントとして保存
         doc_title = make_doc_title(video_name)

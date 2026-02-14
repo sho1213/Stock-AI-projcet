@@ -34,7 +34,6 @@ class JapaneseTranscriber:
 
     def transcribe(self, media_path: str, vad_filter: bool = True, beam_size: int = 5):
         """音声/動画を日本語で書き起こす。"""
-
         segments, info = self.model.transcribe(
             media_path,
             language="ja",
