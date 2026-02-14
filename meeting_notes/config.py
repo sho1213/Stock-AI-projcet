@@ -35,29 +35,12 @@ def _get_env_int(name, default, logger):
         return default
 
 
-def _as_non_negative(value, default, name, logger):
-    """負数を許可しない設定値を正規化する。"""
-    if value < 0:
-        logger.warning(
-            "%s の値 %d は負数のため、デフォルト値 %d を使用します。",
-            name,
-            value,
-            default,
-        )
-        return default
-    return value
-
-
 def load_config(base_dir: Path, logger):
     """環境変数を読み込み、設定辞書を返す。"""
     load_dotenv(base_dir / ".env")
 
-    request_interval = _as_non_negative(
-        _get_env_int("REQUEST_INTERVAL", 5, logger), 5, "REQUEST_INTERVAL", logger
-    )
-    max_videos = _as_non_negative(
-        _get_env_int("MAX_VIDEOS_PER_RUN", 10, logger), 10, "MAX_VIDEOS_PER_RUN", logger
-    )
+    request_interval = _get_env_int("REQUEST_INTERVAL", 5, logger)
+    max_videos = _get_env_int("MAX_VIDEOS_PER_RUN", 10, logger)
 
     return {
         "shared_drive_name": _get_env_str("SHARED_DRIVE_NAME", ""),
