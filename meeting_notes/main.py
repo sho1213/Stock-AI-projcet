@@ -28,6 +28,7 @@ import gemini_service as gs
 
 BASE_DIR = Path(__file__).parent
 PROCESSED_LOG = BASE_DIR / "processed_videos.json"
+MB = 1024 * 1024
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,15 +72,15 @@ def convert_to_mp3(video_path):
     """
     mp3_path = video_path.rsplit(".", 1)[0] + ".mp3"
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["ffmpeg", "-i", video_path, "-vn", "-acodec", "libmp3lame",
              "-ab", "128k", "-y", mp3_path],
             check=True,
             capture_output=True,
             text=True,
         )
-        video_size = os.path.getsize(video_path) / (1024 * 1024)
-        mp3_size = os.path.getsize(mp3_path) / (1024 * 1024)
+        video_size = os.path.getsize(video_path) / MB
+        mp3_size = os.path.getsize(mp3_path) / MB
         logger.info(
             f"  MP3変換完了: {video_size:.1f}MB → {mp3_size:.1f}MB "
             f"({mp3_size / video_size * 100:.0f}%に削減)"
@@ -96,42 +97,29 @@ def convert_to_mp3(video_path):
         return None
 
 
-def run(dry_run=False):
-    """メイン処理を実行する。"""
+def _load_config():
+    """環境変数を読み込み、設定辞書を返す。"""
     load_dotenv(BASE_DIR / ".env")
 
-    # 環境変数の読み込み
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
         logger.error("GEMINI_API_KEY が設定されていません。.env ファイルを確認してください。")
         sys.exit(1)
 
-    shared_drive_name = os.getenv("SHARED_DRIVE_NAME", "Jupiter folder")
-    source_folder_name = os.getenv("SOURCE_FOLDER_NAME", "02_録画データ_all")
-    target_parent_folder_name = os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川")
-    target_folder_name = os.getenv("TARGET_FOLDER_NAME", "議事録")
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    request_interval = int(os.getenv("REQUEST_INTERVAL", "30"))
-    max_videos = int(os.getenv("MAX_VIDEOS_PER_RUN", "50"))
+    return {
+        "gemini_api_key": gemini_api_key,
+        "shared_drive_name": os.getenv("SHARED_DRIVE_NAME", "Jupiter folder"),
+        "source_folder_name": os.getenv("SOURCE_FOLDER_NAME", "02_録画データ_all"),
+        "target_parent_folder_name": os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
+        "target_folder_name": os.getenv("TARGET_FOLDER_NAME", "議事録"),
+        "gemini_model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+        "request_interval": int(os.getenv("REQUEST_INTERVAL", "30")),
+        "max_videos": int(os.getenv("MAX_VIDEOS_PER_RUN", "50")),
+    }
 
-    # ffmpegの有無を確認
-    has_ffmpeg = shutil.which("ffmpeg") is not None
-    if has_ffmpeg:
-        logger.info("ffmpeg検出: MP4→MP3変換を使用してトークン消費を削減します")
-    else:
-        logger.warning(
-            "ffmpegが見つかりません。MP4のまま処理します（トークン消費が大きくなります）。"
-            "ffmpegのインストールを推奨します。"
-        )
 
-    # Gemini APIの設定
-    gs.configure(gemini_api_key)
-
-    # Google Drive APIの認証
-    logger.info("Google Drive APIに接続中...")
-    drive_svc, docs_svc = ds.get_services()
-
-    # ソースフォルダを特定（共有ドライブ or 共有アイテム）
+def _find_source_folder(drive_svc, shared_drive_name, source_folder_name):
+    """ソースフォルダを検索し、(folder_id, drive_id)を返す。"""
     shared_drive_id = None
     if shared_drive_name:
         try:
@@ -141,35 +129,19 @@ def run(dry_run=False):
             source_folder_id = ds.find_folder_in_shared_drive(
                 drive_svc, source_folder_name, shared_drive_id
             )
+            return source_folder_id, shared_drive_id
         except ValueError:
             logger.info("共有ドライブが見つかりません。共有アイテムから検索します...")
-            shared_drive_id = None
 
-    if not shared_drive_id:
-        logger.info(f"共有アイテムからフォルダ '{source_folder_name}' を検索中...")
-        source_folder_id = ds.find_folder_in_shared_items(
-            drive_svc, source_folder_name
-        )
-
-    logger.info(f"出力フォルダ '{target_parent_folder_name}/{target_folder_name}' を検索中...")
-    parent_folder_id = ds.find_folder_in_my_drive(drive_svc, target_parent_folder_name)
-    target_folder_id = ds.find_folder_in_my_drive(
-        drive_svc, target_folder_name, parent_id=parent_folder_id
+    logger.info(f"共有アイテムからフォルダ '{source_folder_name}' を検索中...")
+    source_folder_id = ds.find_folder_in_shared_items(
+        drive_svc, source_folder_name
     )
+    return source_folder_id, None
 
-    # 動画ファイルの一覧を取得
-    logger.info("動画ファイルを検索中...")
-    videos = ds.list_videos_in_folder(drive_svc, source_folder_id, drive_id=shared_drive_id)
 
-    if not videos:
-        logger.info("処理対象の動画ファイルが見つかりませんでした。")
-        return
-
-    # 処理済み動画の確認（ローカル記録 + Drive上の既存ドキュメント名）
-    processed = load_processed()
-    existing_docs = ds.list_docs_in_folder(drive_svc, target_folder_id)
-
-    # 未処理の動画をフィルタリング
+def _filter_unprocessed(videos, processed, existing_docs):
+    """未処理の動画をフィルタリングして返す。"""
     unprocessed = []
     for video in videos:
         doc_title = make_doc_title(video["name"])
@@ -184,7 +156,6 @@ def run(dry_run=False):
             continue
         if doc_title in existing_docs:
             logger.info(f"スキップ（ドキュメント存在）: {video['name']}")
-            # ローカル記録にも追加
             processed[video["id"]] = {
                 "name": video["name"],
                 "doc_title": doc_title,
@@ -193,6 +164,135 @@ def run(dry_run=False):
             }
             continue
         unprocessed.append(video)
+    return unprocessed
+
+
+def _process_video(video, drive_svc, docs_svc, target_folder_id,
+                   gemini_model, has_ffmpeg, processed):
+    """1件の動画を処理する（ダウンロード→変換→生成→保存）。
+
+    Returns:
+        True: 成功, False: エラー
+    """
+    video_name = video["name"]
+    video_id = video["id"]
+    tmp_path = None
+    mp3_path = None
+
+    try:
+        # 一時ファイルに動画をダウンロード
+        suffix = Path(video_name).suffix or ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+
+        logger.info(f"  ダウンロード中: {video_name}")
+        ds.download_video(drive_svc, video_id, tmp_path)
+
+        # MP3に変換（ffmpegが利用可能な場合）
+        media_path = tmp_path
+        if has_ffmpeg:
+            logger.info("  MP3に変換中...")
+            mp3_path = convert_to_mp3(tmp_path)
+            if mp3_path:
+                media_path = mp3_path
+                # MP4の一時ファイルを先に削除（ディスク節約）
+                try:
+                    os.unlink(tmp_path)
+                    tmp_path = None
+                except OSError:
+                    pass
+
+        # Gemini APIで議事録を生成
+        logger.info("  議事録を生成中...")
+        notes = gs.generate_meeting_notes(media_path, model_name=gemini_model)
+
+        # Googleドキュメントとして保存
+        doc_title = make_doc_title(video_name)
+        logger.info(f"  Googleドキュメントを作成中: {doc_title}")
+        doc_id = ds.create_google_doc(
+            drive_svc, docs_svc, doc_title, notes, target_folder_id
+        )
+
+        # 処理済みとして記録
+        processed[video_id] = {
+            "name": video_name,
+            "doc_title": doc_title,
+            "doc_id": doc_id,
+            "processed_at": datetime.now().isoformat(),
+            "status": "success",
+        }
+        save_processed(processed)
+        logger.info(f"  完了: {doc_title}")
+        return True
+
+    except Exception as e:
+        logger.error(f"  エラー: {video_name} の処理に失敗しました: {e}")
+        processed[video_id] = {
+            "name": video_name,
+            "processed_at": datetime.now().isoformat(),
+            "status": f"error: {str(e)}",
+        }
+        save_processed(processed)
+        return False
+
+    finally:
+        # 一時ファイルを削除
+        for path in [tmp_path, mp3_path]:
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+
+def run(dry_run=False):
+    """メイン処理を実行する。"""
+    config = _load_config()
+
+    # ffmpegの有無を確認
+    has_ffmpeg = shutil.which("ffmpeg") is not None
+    if has_ffmpeg:
+        logger.info("ffmpeg検出: MP4→MP3変換を使用してトークン消費を削減します")
+    else:
+        logger.warning(
+            "ffmpegが見つかりません。MP4のまま処理します（トークン消費が大きくなります）。"
+            "ffmpegのインストールを推奨します。"
+        )
+
+    # API設定・認証
+    gs.configure(config["gemini_api_key"])
+    logger.info("Google Drive APIに接続中...")
+    drive_svc, docs_svc = ds.get_services()
+
+    # ソースフォルダ・出力フォルダを特定
+    source_folder_id, shared_drive_id = _find_source_folder(
+        drive_svc, config["shared_drive_name"], config["source_folder_name"]
+    )
+
+    logger.info(
+        f"出力フォルダ '{config['target_parent_folder_name']}"
+        f"/{config['target_folder_name']}' を検索中..."
+    )
+    parent_folder_id = ds.find_folder_in_my_drive(
+        drive_svc, config["target_parent_folder_name"]
+    )
+    target_folder_id = ds.find_folder_in_my_drive(
+        drive_svc, config["target_folder_name"], parent_id=parent_folder_id
+    )
+
+    # 動画ファイルの一覧を取得
+    logger.info("動画ファイルを検索中...")
+    videos = ds.list_videos_in_folder(
+        drive_svc, source_folder_id, drive_id=shared_drive_id
+    )
+    if not videos:
+        logger.info("処理対象の動画ファイルが見つかりませんでした。")
+        return
+
+    # 未処理の動画をフィルタリング
+    processed = load_processed()
+    existing_docs = ds.list_docs_in_folder(drive_svc, target_folder_id)
+    unprocessed = _filter_unprocessed(videos, processed, existing_docs)
 
     if not unprocessed:
         logger.info("新しい動画はありません。全て処理済みです。")
@@ -200,6 +300,7 @@ def run(dry_run=False):
         return
 
     # 処理上限の適用
+    max_videos = config["max_videos"]
     if max_videos > 0 and len(unprocessed) > max_videos:
         logger.info(
             f"未処理の動画: {len(unprocessed)} 件 "
@@ -211,93 +312,31 @@ def run(dry_run=False):
 
     if dry_run:
         logger.info("=== ドライラン: 以下の動画が処理対象です ===")
-        for v in unprocessed:
-            size_mb = int(v.get("size", 0)) / (1024 * 1024)
-            logger.info(f"  - {v['name']} ({size_mb:.1f} MB)")
+        for video in unprocessed:
+            size_mb = int(video.get("size", 0)) / MB
+            logger.info(f"  - {video['name']} ({size_mb:.1f} MB)")
         return
 
     # 各動画を処理
     success_count = 0
     error_count = 0
+    request_interval = config["request_interval"]
 
     for i, video in enumerate(unprocessed, 1):
-        video_name = video["name"]
-        video_id = video["id"]
-        size_mb = int(video.get("size", 0)) / (1024 * 1024)
+        size_mb = int(video.get("size", 0)) / MB
         logger.info(
             f"\n{'='*60}\n"
-            f"[{i}/{len(unprocessed)}] 処理中: {video_name} ({size_mb:.1f} MB)"
+            f"[{i}/{len(unprocessed)}] 処理中: {video['name']} ({size_mb:.1f} MB)"
         )
 
-        tmp_path = None
-        mp3_path = None
-
-        try:
-            # 一時ファイルに動画をダウンロード
-            suffix = Path(video_name).suffix or ".mp4"
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix, delete=False
-            ) as tmp:
-                tmp_path = tmp.name
-
-            logger.info(f"  ダウンロード中: {video_name}")
-            ds.download_video(drive_svc, video_id, tmp_path)
-
-            # MP3に変換（ffmpegが利用可能な場合）
-            media_path = tmp_path
-            if has_ffmpeg:
-                logger.info("  MP3に変換中...")
-                mp3_path = convert_to_mp3(tmp_path)
-                if mp3_path:
-                    media_path = mp3_path
-                    # MP4の一時ファイルを先に削除（ディスク節約）
-                    try:
-                        os.unlink(tmp_path)
-                        tmp_path = None
-                    except OSError:
-                        pass
-
-            # Gemini APIで議事録を生成
-            logger.info("  議事録を生成中...")
-            notes = gs.generate_meeting_notes(media_path, model_name=gemini_model)
-
-            # Googleドキュメントとして保存
-            doc_title = make_doc_title(video_name)
-            logger.info(f"  Googleドキュメントを作成中: {doc_title}")
-            doc_id = ds.create_google_doc(
-                drive_svc, docs_svc, doc_title, notes, target_folder_id
-            )
-
-            # 処理済みとして記録
-            processed[video_id] = {
-                "name": video_name,
-                "doc_title": doc_title,
-                "doc_id": doc_id,
-                "processed_at": datetime.now().isoformat(),
-                "status": "success",
-            }
-            save_processed(processed)
+        ok = _process_video(
+            video, drive_svc, docs_svc, target_folder_id,
+            config["gemini_model"], has_ffmpeg, processed,
+        )
+        if ok:
             success_count += 1
-            logger.info(f"  完了: {doc_title}")
-
-        except Exception as e:
+        else:
             error_count += 1
-            logger.error(f"  エラー: {video_name} の処理に失敗しました: {e}")
-            processed[video_id] = {
-                "name": video_name,
-                "processed_at": datetime.now().isoformat(),
-                "status": f"error: {str(e)}",
-            }
-            save_processed(processed)
-
-        finally:
-            # 一時ファイルを削除
-            for path in [tmp_path, mp3_path]:
-                if path:
-                    try:
-                        os.unlink(path)
-                    except OSError:
-                        pass
 
         # 次の処理まで待機（レート制限対策）
         if i < len(unprocessed) and request_interval > 0:

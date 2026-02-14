@@ -23,13 +23,18 @@ SCOPES = [
 REDIRECT_URI = "http://localhost"
 
 
-def step1_show_url():
-    """認証URLを表示する。"""
-    flow = Flow.from_client_secrets_file(
+def _create_flow():
+    """OAuth2 Flowオブジェクトを作成する。"""
+    return Flow.from_client_secrets_file(
         str(CREDENTIALS_PATH),
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI,
     )
+
+
+def step1_show_url():
+    """認証URLを表示する。"""
+    flow = _create_flow()
     auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
     print("\n" + "=" * 60)
     print("以下のURLをブラウザで開いてGoogleアカウントでログインしてください:")
@@ -46,11 +51,7 @@ def step1_show_url():
 
 def step2_fetch_token(code):
     """認証コードからトークンを取得して保存する。"""
-    flow = Flow.from_client_secrets_file(
-        str(CREDENTIALS_PATH),
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI,
-    )
+    flow = _create_flow()
     flow.fetch_token(code=code)
     creds = flow.credentials
 

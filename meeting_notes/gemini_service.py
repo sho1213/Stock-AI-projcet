@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 INITIAL_RETRY_WAIT = 60  # 秒
 
+# 生成設定
+FILE_PROCESSING_POLL_INTERVAL = 10  # 秒
+MAX_OUTPUT_TOKENS = 8192
+TEMPERATURE = 0.3
+
 MEETING_NOTES_PROMPT = """\
 あなたは優秀な議事録作成アシスタントです。
 以下の会議の音声/動画を視聴し、詳細な議事録を日本語で作成してください。
@@ -74,7 +79,7 @@ def generate_meeting_notes(media_path, model_name="gemini-2.0-flash"):
     # ファイルの処理完了を待機
     logger.info("  Gemini APIでファイルを処理中...")
     while uploaded_file.state.name == "PROCESSING":
-        time.sleep(10)
+        time.sleep(FILE_PROCESSING_POLL_INTERVAL)
         uploaded_file = genai.get_file(uploaded_file.name)
 
     if uploaded_file.state.name == "FAILED":
@@ -93,8 +98,8 @@ def generate_meeting_notes(media_path, model_name="gemini-2.0-flash"):
             response = model.generate_content(
                 [uploaded_file, MEETING_NOTES_PROMPT],
                 generation_config=genai.GenerationConfig(
-                    max_output_tokens=8192,
-                    temperature=0.3,
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
+                    temperature=TEMPERATURE,
                 ),
             )
             break

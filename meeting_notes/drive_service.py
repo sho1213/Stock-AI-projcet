@@ -3,19 +3,18 @@
 共有ドライブからの動画取得、マイドライブへのGoogleドキュメント作成を担当。
 """
 
-import io
 import logging
 import os
 import sys
 from pathlib import Path
 
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow, InstalledAppFlow
-from google.auth.transport.requests import Request
 import google_auth_httplib2
+import httplib2
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaInMemoryUpload
-import httplib2
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +209,22 @@ def find_folder_in_my_drive(drive_service, folder_name, parent_id=None):
     return folder["id"]
 
 
+def _paginated_file_list(drive_service, q, fields, **extra_kwargs):
+    """ページネーション付きでファイル一覧を取得する。"""
+    all_files = []
+    page_token = None
+    while True:
+        kwargs = {"q": q, "fields": fields, "pageSize": 100, **extra_kwargs}
+        if page_token:
+            kwargs["pageToken"] = page_token
+        results = drive_service.files().list(**kwargs).execute()
+        all_files.extend(results.get("files", []))
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+    return all_files
+
+
 def list_videos_in_folder(drive_service, folder_id, drive_id=None):
     """指定フォルダ内の全動画ファイルをリストアップ。
 
@@ -223,28 +238,20 @@ def list_videos_in_folder(drive_service, folder_id, drive_id=None):
     )
     q = f"'{folder_id}' in parents and ({mime_query}) and trashed = false"
 
-    all_files = []
-    page_token = None
-    while True:
-        kwargs = {
-            "q": q,
-            "fields": "nextPageToken, files(id, name, mimeType, createdTime, size)",
-            "orderBy": "createdTime",
-            "includeItemsFromAllDrives": True,
-            "supportsAllDrives": True,
-            "pageSize": 100,
-        }
-        if drive_id:
-            kwargs["corpora"] = "drive"
-            kwargs["driveId"] = drive_id
-        if page_token:
-            kwargs["pageToken"] = page_token
-        results = drive_service.files().list(**kwargs).execute()
-        all_files.extend(results.get("files", []))
-        page_token = results.get("nextPageToken")
-        if not page_token:
-            break
+    extra_kwargs = {
+        "orderBy": "createdTime",
+        "includeItemsFromAllDrives": True,
+        "supportsAllDrives": True,
+    }
+    if drive_id:
+        extra_kwargs["corpora"] = "drive"
+        extra_kwargs["driveId"] = drive_id
 
+    all_files = _paginated_file_list(
+        drive_service, q,
+        "nextPageToken, files(id, name, mimeType, createdTime, size)",
+        **extra_kwargs,
+    )
     logger.info(f"動画ファイル {len(all_files)} 件を発見")
     return all_files
 
@@ -256,22 +263,9 @@ def list_docs_in_folder(drive_service, folder_id):
         f"and mimeType = 'application/vnd.google-apps.document' "
         f"and trashed = false"
     )
-    all_docs = []
-    page_token = None
-    while True:
-        kwargs = {
-            "q": q,
-            "fields": "nextPageToken, files(id, name)",
-            "pageSize": 100,
-        }
-        if page_token:
-            kwargs["pageToken"] = page_token
-        results = drive_service.files().list(**kwargs).execute()
-        all_docs.extend(results.get("files", []))
-        page_token = results.get("nextPageToken")
-        if not page_token:
-            break
-
+    all_docs = _paginated_file_list(
+        drive_service, q, "nextPageToken, files(id, name)",
+    )
     return {doc["name"] for doc in all_docs}
 
 
