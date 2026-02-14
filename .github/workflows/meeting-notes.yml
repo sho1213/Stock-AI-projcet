@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'ドライラン実行（議事録を作成しない）'
+        description: 'ドライラン実行（書き起こしを作成しない）'
         required: false
         default: false
         type: boolean
@@ -36,6 +36,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r meeting_notes/requirements.txt
 
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: whisper-${{ vars.WHISPER_MODEL_SIZE || 'large-v3' }}
+
       - name: Restore Google auth files
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
@@ -51,20 +57,16 @@ jobs:
       - name: Run meeting notes generator
         working-directory: meeting_notes
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SHARED_DRIVE_NAME: ${{ secrets.SHARED_DRIVE_NAME }}
           SOURCE_FOLDER_NAME: ${{ secrets.SOURCE_FOLDER_NAME }}
           TARGET_PARENT_FOLDER_NAME: ${{ secrets.TARGET_PARENT_FOLDER_NAME }}
           TARGET_FOLDER_NAME: ${{ secrets.TARGET_FOLDER_NAME }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          WHISPER_MODEL_SIZE: ${{ vars.WHISPER_MODEL_SIZE }}
+          WHISPER_DEVICE: cpu
+          WHISPER_COMPUTE_TYPE: int8
           REQUEST_INTERVAL: ${{ vars.REQUEST_INTERVAL }}
           MAX_VIDEOS_PER_RUN: ${{ vars.MAX_VIDEOS_PER_RUN }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "GEMINI_API_KEY が未設定です" >&2
-            exit 1
-          fi
-
           ARGS=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="--dry-run"

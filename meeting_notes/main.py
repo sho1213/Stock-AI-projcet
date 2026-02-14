@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""会議動画 → 議事録 自動生成スクリプト
+"""会議動画 → 書き起こし 自動生成スクリプト
 
-Google Drive共有ドライブの動画をGemini APIで処理し、
-議事録をGoogleドキュメントとしてマイドライブに保存する。
+Google Drive共有アイテムの動画をローカルWhisper (faster-whisper) で書き起こし、
+結果をGoogleドキュメントとしてマイドライブに保存する。
 
 使い方:
     python main.py          # 通常実行
@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import drive_service as ds
-import gemini_service as gs
+import whisper_service as ws
 from config import load_config
 
 BASE_DIR = Path(__file__).parent
@@ -54,44 +54,43 @@ def save_processed(processed):
 
 
 def make_doc_title(video_name):
-    """動画ファイル名から議事録のドキュメントタイトルを生成する。"""
+    """動画ファイル名から書き起こしのドキュメントタイトルを生成する。"""
     stem = Path(video_name).stem
     return f"【議事録】{stem}"
 
 
-def convert_to_mp3(video_path):
-    """MP4をMP3に変換してトークン消費を削減する。
+def extract_audio(video_path):
+    """動画ファイルからWAV音声を抽出する（Whisperの入力に最適化）。
 
     Args:
         video_path: 動画ファイルのパス
 
     Returns:
-        MP3ファイルのパス。変換失敗時はNoneを返す。
+        WAVファイルのパス。変換失敗時はNoneを返す。
     """
-    mp3_path = video_path.rsplit(".", 1)[0] + ".mp3"
+    wav_path = video_path.rsplit(".", 1)[0] + ".wav"
     try:
         subprocess.run(
-            ["ffmpeg", "-i", video_path, "-vn", "-acodec", "libmp3lame",
-             "-ab", "128k", "-y", mp3_path],
+            ["ffmpeg", "-i", video_path, "-vn",
+             "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+             "-y", wav_path],
             check=True,
             capture_output=True,
             text=True,
         )
         video_size = os.path.getsize(video_path) / MB
-        mp3_size = os.path.getsize(mp3_path) / MB
+        wav_size = os.path.getsize(wav_path) / MB
         logger.info(
-            f"  MP3変換完了: {video_size:.1f}MB → {mp3_size:.1f}MB "
-            f"({mp3_size / video_size * 100:.0f}%に削減)"
+            f"  音声抽出完了: {video_size:.1f}MB → {wav_size:.1f}MB"
         )
-        return mp3_path
+        return wav_path
     except FileNotFoundError:
         logger.warning(
-            "  ffmpegが見つかりません。MP4のまま処理します。"
-            "  ffmpegをインストールしてPATHに追加してください。"
+            "  ffmpegが見つかりません。動画ファイルのまま書き起こしを行います。"
         )
         return None
     except subprocess.CalledProcessError as e:
-        logger.warning(f"  MP3変換に失敗しました。MP4のまま処理します: {e.stderr}")
+        logger.warning(f"  音声抽出に失敗しました。動画のまま処理します: {e.stderr}")
         return None
 
 
@@ -145,8 +144,8 @@ def _filter_unprocessed(videos, processed, existing_docs):
 
 
 def _process_video(video, drive_svc, docs_svc, target_folder_id,
-                   gemini_model, has_ffmpeg, processed):
-    """1件の動画を処理する（ダウンロード→変換→生成→保存）。
+                   config, has_ffmpeg, processed):
+    """1件の動画を処理する（ダウンロード→音声抽出→書き起こし→保存）。
 
     Returns:
         True: 成功, False: エラー
@@ -154,7 +153,7 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
     video_name = video["name"]
     video_id = video["id"]
     tmp_path = None
-    mp3_path = None
+    wav_path = None
 
     try:
         # 一時ファイルに動画をダウンロード
@@ -165,29 +164,34 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
         logger.info(f"  ダウンロード中: {video_name}")
         ds.download_video(drive_svc, video_id, tmp_path)
 
-        # MP3に変換（ffmpegが利用可能な場合）
+        # 音声を抽出（ffmpegが利用可能な場合）
         media_path = tmp_path
         if has_ffmpeg:
-            logger.info("  MP3に変換中...")
-            mp3_path = convert_to_mp3(tmp_path)
-            if mp3_path:
-                media_path = mp3_path
-                # MP4の一時ファイルを先に削除（ディスク節約）
+            logger.info("  音声を抽出中...")
+            wav_path = extract_audio(tmp_path)
+            if wav_path:
+                media_path = wav_path
+                # 動画の一時ファイルを先に削除（ディスク節約）
                 try:
                     os.unlink(tmp_path)
                     tmp_path = None
                 except OSError:
                     pass
 
-        # Gemini APIで議事録を生成
-        logger.info("  議事録を生成中...")
-        notes = gs.generate_meeting_notes(media_path, model_name=gemini_model)
+        # Whisperで書き起こし
+        logger.info("  書き起こし中（Whisper large-v3）...")
+        transcription = ws.transcribe(
+            media_path,
+            model_size=config["whisper_model_size"],
+            device=config["whisper_device"],
+            compute_type=config["whisper_compute_type"],
+        )
 
         # Googleドキュメントとして保存
         doc_title = make_doc_title(video_name)
         logger.info(f"  Googleドキュメントを作成中: {doc_title}")
         doc_id = ds.create_google_doc(
-            drive_svc, docs_svc, doc_title, notes, target_folder_id
+            drive_svc, docs_svc, doc_title, transcription, target_folder_id
         )
 
         # 処理済みとして記録
@@ -214,7 +218,7 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
 
     finally:
         # 一時ファイルを削除
-        for path in [tmp_path, mp3_path]:
+        for path in [tmp_path, wav_path]:
             if path:
                 try:
                     os.unlink(path)
@@ -229,15 +233,27 @@ def run(dry_run=False):
     # ffmpegの有無を確認
     has_ffmpeg = shutil.which("ffmpeg") is not None
     if has_ffmpeg:
-        logger.info("ffmpeg検出: MP4→MP3変換を使用してトークン消費を削減します")
+        logger.info("ffmpeg検出: 動画から音声を抽出してWhisperに入力します")
     else:
         logger.warning(
-            "ffmpegが見つかりません。MP4のまま処理します（トークン消費が大きくなります）。"
-            "ffmpegのインストールを推奨します。"
+            "ffmpegが見つかりません。動画ファイルのまま処理します。"
+            "ffmpegのインストールを推奨します（音声抽出で処理が高速化されます）。"
         )
 
-    # API設定・認証
-    gs.configure(config["gemini_api_key"])
+    # Whisperモデルを事前にロード
+    logger.info(
+        f"Whisperモデル: {config['whisper_model_size']} "
+        f"(device={config['whisper_device']}, "
+        f"compute_type={config['whisper_compute_type']})"
+    )
+    if not dry_run:
+        ws.load_model(
+            config["whisper_model_size"],
+            config["whisper_device"],
+            config["whisper_compute_type"],
+        )
+
+    # Google Drive認証
     logger.info("Google Drive APIに接続中...")
     drive_svc, docs_svc = ds.get_services()
 
@@ -310,7 +326,7 @@ def run(dry_run=False):
 
         ok = _process_video(
             video, drive_svc, docs_svc, target_folder_id,
-            config["gemini_model"], has_ffmpeg, processed,
+            config, has_ffmpeg, processed,
         )
         if ok:
             success_count += 1
@@ -321,11 +337,10 @@ def run(dry_run=False):
             if consecutive_errors >= max_consecutive_errors:
                 logger.error(
                     f"{max_consecutive_errors} 件連続でエラーが発生したため処理を中断します。"
-                    "API枠の超過やネットワーク障害の可能性があります。"
                 )
                 break
 
-        # 次の処理まで待機（レート制限対策）
+        # 次の処理まで待機
         if i < len(unprocessed) and request_interval > 0:
             logger.info(f"  次の処理まで {request_interval} 秒待機...")
             time.sleep(request_interval)
@@ -338,7 +353,7 @@ def run(dry_run=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="会議動画から議事録を自動生成"
+        description="会議動画から書き起こしを自動生成"
     )
     parser.add_argument(
         "--dry-run",

@@ -1,7 +1,6 @@
 """設定読み込みユーティリティ。"""
 
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -40,18 +39,17 @@ def load_config(base_dir: Path, logger):
     """環境変数を読み込み、設定辞書を返す。"""
     load_dotenv(base_dir / ".env")
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-        logger.error("GEMINI_API_KEY が設定されていません。.env ファイルを確認してください。")
-        sys.exit(1)
-
     return {
-        "gemini_api_key": gemini_api_key,
+        # Google Drive 設定
         "shared_drive_name": _get_env_str("SHARED_DRIVE_NAME", ""),
         "source_folder_name": _get_env_str("SOURCE_FOLDER_NAME", "録画データ_all"),
         "target_parent_folder_name": _get_env_str("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
         "target_folder_name": _get_env_str("TARGET_FOLDER_NAME", "議事録"),
-        "gemini_model": _get_env_str("GEMINI_MODEL", "gemini-2.0-flash"),
-        "request_interval": _get_env_int("REQUEST_INTERVAL", 30, logger),
+        # Whisper 設定
+        "whisper_model_size": _get_env_str("WHISPER_MODEL_SIZE", "large-v3"),
+        "whisper_device": _get_env_str("WHISPER_DEVICE", "auto"),
+        "whisper_compute_type": _get_env_str("WHISPER_COMPUTE_TYPE", "int8"),
+        # 実行制御
+        "request_interval": _get_env_int("REQUEST_INTERVAL", 5, logger),
         "max_videos": _get_env_int("MAX_VIDEOS_PER_RUN", 50, logger),
     }
