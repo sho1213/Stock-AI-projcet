@@ -182,10 +182,7 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
 
         # Whisperで日本語書き起こしを実行
         logger.info("  日本語書き起こしを実行中...")
-        transcribe_start = time.perf_counter()
-        segments = transcriber.transcribe(media_path)
-        notes = ts.render_meeting_notes(video_name, segments)
-        logger.info("  書き起こし完了（%.1f秒）", time.perf_counter() - transcribe_start)
+
 
         # Googleドキュメントとして保存
         doc_title = make_doc_title(video_name)
@@ -241,7 +238,6 @@ def run(dry_run=False):
             "ffmpegが見つかりません。MP4のまま処理します。"
             "faster-whisperのためffmpegのインストールを推奨します。"
         )
-
     logger.info("Google Drive APIに接続中...")
     drive_svc, docs_svc = ds.get_services()
 
@@ -300,7 +296,6 @@ def run(dry_run=False):
             logger.info(f"  - {video['name']} ({size_mb:.1f} MB)")
         return
 
-    logger.info("書き起こしモデルをロードします（初回は数分かかる場合があります）")
     transcriber = ts.JapaneseTranscriber(
         compute_type=config["whisper_compute_type"],
         device=config["whisper_device"],

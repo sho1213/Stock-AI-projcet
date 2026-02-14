@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from time import perf_counter
 
 from faster_whisper import WhisperModel
 
@@ -35,7 +34,7 @@ class JapaneseTranscriber:
 
     def transcribe(self, media_path: str, vad_filter: bool = True, beam_size: int = 5):
         """音声/動画を日本語で書き起こす。"""
-        start = perf_counter()
+
         segments, info = self.model.transcribe(
             media_path,
             language="ja",
@@ -45,24 +44,6 @@ class JapaneseTranscriber:
             condition_on_previous_text=True,
             temperature=0.0,
         )
-
-        segment_list = []
-        for idx, seg in enumerate(segments, 1):
-            segment_list.append(seg)
-            if idx % 20 == 0:
-                logger.info(
-                    "書き起こし中: セグメント %d 件（最終タイムスタンプ %s）",
-                    idx,
-                    _format_time(seg.end),
-                )
-
-        elapsed = perf_counter() - start
-        logger.info(
-            "書き起こし完了: 検出言語=%s, 推定時間=%.1f秒, セグメント数=%d, 処理時間=%.1f秒",
-            info.language,
-            info.duration,
-            len(segment_list),
-            elapsed,
         )
         return segment_list
 
