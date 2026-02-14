@@ -59,6 +59,13 @@ jobs:
             python main.py
           fi
 
+      - name: Ensure processed videos file exists
+        if: always()
+        run: |
+          if [ ! -f meeting_notes/processed_videos.json ]; then
+            echo '{}' > meeting_notes/processed_videos.json
+          fi
+
       - name: Save processed videos cache
         uses: actions/cache/save@v4
         if: always()
