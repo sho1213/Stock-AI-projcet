@@ -6,6 +6,7 @@
 import io
 import logging
 import os
+import sys
 from pathlib import Path
 
 from google.oauth2.credentials import Credentials
@@ -57,28 +58,23 @@ def authenticate():
                     f"credentials.json が見つかりません: {CREDENTIALS_PATH}\n"
                     "setup_guide.md を参照してOAuth2クライアントIDを設定してください。"
                 )
-            # ブラウザが使える環境ではローカルサーバー方式、
-            # なければURL表示＋認証コード入力方式
-            if os.environ.get("DISPLAY") or os.environ.get("BROWSER"):
+            # デスクトップ環境（Windows / Linux GUI）ではローカルサーバー方式
+            is_desktop = (
+                sys.platform == "win32"
+                or sys.platform == "darwin"
+                or os.environ.get("DISPLAY")
+                or os.environ.get("BROWSER")
+            )
+            if is_desktop:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     str(CREDENTIALS_PATH), SCOPES
                 )
                 creds = flow.run_local_server(port=0)
             else:
-                flow = Flow.from_client_secrets_file(
-                    str(CREDENTIALS_PATH),
-                    scopes=SCOPES,
-                    redirect_uri="urn:ietf:wg:oauth:2.0:oob",
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    str(CREDENTIALS_PATH), SCOPES
                 )
-                auth_url, _ = flow.authorization_url(prompt="consent")
-                print("\n" + "=" * 60)
-                print("以下のURLをブラウザで開いてGoogleアカウントでログインしてください:")
-                print(f"\n  {auth_url}\n")
-                print("ログイン後に表示される認証コードを貼り付けてください。")
-                print("=" * 60)
-                code = input("\n認証コード: ").strip()
-                flow.fetch_token(code=code)
-                creds = flow.credentials
+                creds = flow.run_console()
         with open(TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
 
