@@ -1,18 +1,23 @@
 """Gemini APIによる議事録生成モジュール
 
-動画ファイルをGemini APIにアップロードし、議事録を自動生成する。
+動画/音声ファイルをGemini APIにアップロードし、議事録を自動生成する。
 """
 
 import logging
 import time
 
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 
 logger = logging.getLogger(__name__)
 
+# リトライ設定
+MAX_RETRIES = 3
+INITIAL_RETRY_WAIT = 60  # 秒
+
 MEETING_NOTES_PROMPT = """\
 あなたは優秀な議事録作成アシスタントです。
-以下の会議動画を視聴し、詳細な議事録を日本語で作成してください。
+以下の会議の音声/動画を視聴し、詳細な議事録を日本語で作成してください。
 
 ## 議事録のフォーマット
 
@@ -53,46 +58,69 @@ def configure(api_key):
     genai.configure(api_key=api_key)
 
 
-def generate_meeting_notes(video_path, model_name="gemini-2.0-flash"):
-    """動画ファイルからGemini APIを使って議事録を生成する。
+def generate_meeting_notes(media_path, model_name="gemini-2.0-flash"):
+    """メディアファイル（動画/音声）からGemini APIを使って議事録を生成する。
 
     Args:
-        video_path: 動画ファイルのパス
+        media_path: 動画または音声ファイルのパス
         model_name: 使用するGeminiモデル名
 
     Returns:
         生成された議事録テキスト
     """
-    logger.info(f"  動画をGemini APIにアップロード中: {video_path}")
-    video_file = genai.upload_file(str(video_path))
+    logger.info(f"  ファイルをGemini APIにアップロード中: {media_path}")
+    uploaded_file = genai.upload_file(str(media_path))
 
     # ファイルの処理完了を待機
-    logger.info("  Gemini APIで動画を処理中...")
-    while video_file.state.name == "PROCESSING":
+    logger.info("  Gemini APIでファイルを処理中...")
+    while uploaded_file.state.name == "PROCESSING":
         time.sleep(10)
-        video_file = genai.get_file(video_file.name)
+        uploaded_file = genai.get_file(uploaded_file.name)
 
-    if video_file.state.name == "FAILED":
+    if uploaded_file.state.name == "FAILED":
         raise RuntimeError(
-            f"Gemini APIでの動画処理に失敗しました: {video_file.name}"
+            f"Gemini APIでのファイル処理に失敗しました: {uploaded_file.name}"
         )
 
-    logger.info(f"  動画処理完了。議事録を生成中... (モデル: {model_name})")
+    logger.info(f"  ファイル処理完了。議事録を生成中... (モデル: {model_name})")
 
     model = genai.GenerativeModel(model_name)
-    response = model.generate_content(
-        [video_file, MEETING_NOTES_PROMPT],
-        generation_config=genai.GenerationConfig(
-            max_output_tokens=8192,
-            temperature=0.3,
-        ),
-    )
+
+    # リトライ付きで議事録を生成
+    response = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = model.generate_content(
+                [uploaded_file, MEETING_NOTES_PROMPT],
+                generation_config=genai.GenerationConfig(
+                    max_output_tokens=8192,
+                    temperature=0.3,
+                ),
+            )
+            break
+        except (ResourceExhausted, Exception) as e:
+            is_rate_limit = isinstance(e, ResourceExhausted) or "429" in str(e)
+            if not is_rate_limit or attempt == MAX_RETRIES:
+                # レート制限以外のエラー、またはリトライ上限に達した場合
+                _cleanup_file(uploaded_file)
+                raise
+            wait = INITIAL_RETRY_WAIT * (2 ** attempt)
+            logger.warning(
+                f"  レート制限に到達。{wait}秒待機後にリトライします "
+                f"({attempt + 1}/{MAX_RETRIES})"
+            )
+            time.sleep(wait)
 
     # アップロードしたファイルを削除
+    _cleanup_file(uploaded_file)
+
+    return response.text
+
+
+def _cleanup_file(uploaded_file):
+    """Gemini APIにアップロードしたファイルを削除する。"""
     try:
-        genai.delete_file(video_file.name)
+        genai.delete_file(uploaded_file.name)
         logger.info("  アップロードファイルを削除しました")
     except Exception as e:
         logger.warning(f"  アップロードファイルの削除に失敗: {e}")
-
-    return response.text

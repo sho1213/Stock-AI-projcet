@@ -13,8 +13,11 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -57,6 +60,42 @@ def make_doc_title(video_name):
     return f"【議事録】{stem}"
 
 
+def convert_to_mp3(video_path):
+    """MP4をMP3に変換してトークン消費を削減する。
+
+    Args:
+        video_path: 動画ファイルのパス
+
+    Returns:
+        MP3ファイルのパス。変換失敗時はNoneを返す。
+    """
+    mp3_path = video_path.rsplit(".", 1)[0] + ".mp3"
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-i", video_path, "-vn", "-acodec", "libmp3lame",
+             "-ab", "128k", "-y", mp3_path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        video_size = os.path.getsize(video_path) / (1024 * 1024)
+        mp3_size = os.path.getsize(mp3_path) / (1024 * 1024)
+        logger.info(
+            f"  MP3変換完了: {video_size:.1f}MB → {mp3_size:.1f}MB "
+            f"({mp3_size / video_size * 100:.0f}%に削減)"
+        )
+        return mp3_path
+    except FileNotFoundError:
+        logger.warning(
+            "  ffmpegが見つかりません。MP4のまま処理します。"
+            "  ffmpegをインストールしてPATHに追加してください。"
+        )
+        return None
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"  MP3変換に失敗しました。MP4のまま処理します: {e.stderr}")
+        return None
+
+
 def run(dry_run=False):
     """メイン処理を実行する。"""
     load_dotenv(BASE_DIR / ".env")
@@ -72,6 +111,18 @@ def run(dry_run=False):
     target_parent_folder_name = os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川")
     target_folder_name = os.getenv("TARGET_FOLDER_NAME", "議事録")
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    request_interval = int(os.getenv("REQUEST_INTERVAL", "30"))
+    max_videos = int(os.getenv("MAX_VIDEOS_PER_RUN", "50"))
+
+    # ffmpegの有無を確認
+    has_ffmpeg = shutil.which("ffmpeg") is not None
+    if has_ffmpeg:
+        logger.info("ffmpeg検出: MP4→MP3変換を使用してトークン消費を削減します")
+    else:
+        logger.warning(
+            "ffmpegが見つかりません。MP4のまま処理します（トークン消費が大きくなります）。"
+            "ffmpegのインストールを推奨します。"
+        )
 
     # Gemini APIの設定
     gs.configure(gemini_api_key)
@@ -123,6 +174,12 @@ def run(dry_run=False):
     for video in videos:
         doc_title = make_doc_title(video["name"])
         if video["id"] in processed:
+            entry = processed[video["id"]]
+            # エラーだった動画は再処理対象に含める
+            if entry.get("status", "").startswith("error"):
+                logger.info(f"再処理（前回エラー）: {video['name']}")
+                unprocessed.append(video)
+                continue
             logger.info(f"スキップ（処理済み）: {video['name']}")
             continue
         if doc_title in existing_docs:
@@ -142,7 +199,15 @@ def run(dry_run=False):
         save_processed(processed)
         return
 
-    logger.info(f"未処理の動画: {len(unprocessed)} 件")
+    # 処理上限の適用
+    if max_videos > 0 and len(unprocessed) > max_videos:
+        logger.info(
+            f"未処理の動画: {len(unprocessed)} 件 "
+            f"（今回は最大 {max_videos} 件を処理）"
+        )
+        unprocessed = unprocessed[:max_videos]
+    else:
+        logger.info(f"未処理の動画: {len(unprocessed)} 件")
 
     if dry_run:
         logger.info("=== ドライラン: 以下の動画が処理対象です ===")
@@ -164,6 +229,9 @@ def run(dry_run=False):
             f"[{i}/{len(unprocessed)}] 処理中: {video_name} ({size_mb:.1f} MB)"
         )
 
+        tmp_path = None
+        mp3_path = None
+
         try:
             # 一時ファイルに動画をダウンロード
             suffix = Path(video_name).suffix or ".mp4"
@@ -175,9 +243,23 @@ def run(dry_run=False):
             logger.info(f"  ダウンロード中: {video_name}")
             ds.download_video(drive_svc, video_id, tmp_path)
 
+            # MP3に変換（ffmpegが利用可能な場合）
+            media_path = tmp_path
+            if has_ffmpeg:
+                logger.info("  MP3に変換中...")
+                mp3_path = convert_to_mp3(tmp_path)
+                if mp3_path:
+                    media_path = mp3_path
+                    # MP4の一時ファイルを先に削除（ディスク節約）
+                    try:
+                        os.unlink(tmp_path)
+                        tmp_path = None
+                    except OSError:
+                        pass
+
             # Gemini APIで議事録を生成
             logger.info("  議事録を生成中...")
-            notes = gs.generate_meeting_notes(tmp_path, model_name=gemini_model)
+            notes = gs.generate_meeting_notes(media_path, model_name=gemini_model)
 
             # Googleドキュメントとして保存
             doc_title = make_doc_title(video_name)
@@ -210,10 +292,17 @@ def run(dry_run=False):
 
         finally:
             # 一時ファイルを削除
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            for path in [tmp_path, mp3_path]:
+                if path:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+
+        # 次の処理まで待機（レート制限対策）
+        if i < len(unprocessed) and request_interval > 0:
+            logger.info(f"  次の処理まで {request_interval} 秒待機...")
+            time.sleep(request_interval)
 
     logger.info(
         f"\n{'='*60}\n"
