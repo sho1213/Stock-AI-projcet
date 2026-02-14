@@ -190,6 +190,7 @@ meeting_notes/
 ├── processed_videos.json # 処理済み動画の記録（自動生成）
 ├── meeting_notes.log     # 実行ログ（自動生成）
 ├── main.py               # メインスクリプト
+├── config.py             # 環境変数の読み込み・デフォルト処理
 ├── drive_service.py      # Google Drive API操作
 ├── gemini_service.py     # Gemini APIによる議事録生成
 ├── requirements.txt      # Python依存パッケージ

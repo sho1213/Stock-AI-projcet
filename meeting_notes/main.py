@@ -95,7 +95,6 @@ def convert_to_mp3(video_path):
         return None
 
 
-
 def _find_source_folder(drive_svc, shared_drive_name, source_folder_name):
     """ソースフォルダを検索し、(folder_id, drive_id)を返す。"""
     shared_drive_id = None
