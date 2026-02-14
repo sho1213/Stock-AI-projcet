@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 
 import drive_service as ds
 import gemini_service as gs
+import whisper_service as ws
 
 BASE_DIR = Path(__file__).parent
 PROCESSED_LOG = BASE_DIR / "processed_videos.json"
@@ -115,6 +116,8 @@ def _load_config():
         "gemini_model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
         "request_interval": int(os.getenv("REQUEST_INTERVAL", "30")),
         "max_videos": int(os.getenv("MAX_VIDEOS_PER_RUN", "50")),
+        "whisper_model": os.getenv("WHISPER_MODEL", "small"),
+        "whisper_language": os.getenv("WHISPER_LANGUAGE", "ja"),
     }
 
 
@@ -168,8 +171,9 @@ def _filter_unprocessed(videos, processed, existing_docs):
 
 
 def _process_video(video, drive_svc, docs_svc, target_folder_id,
-                   gemini_model, has_ffmpeg, processed):
-    """1件の動画を処理する（ダウンロード→変換→生成→保存）。
+                   gemini_model, has_ffmpeg, whisper_model, whisper_language,
+                   processed):
+    """1件の動画を処理する（ダウンロード→MP3変換→Whisper書き起こし→Gemini要約→保存）。
 
     Returns:
         True: 成功, False: エラー
@@ -202,9 +206,18 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
                 except OSError:
                     pass
 
-        # Gemini APIで議事録を生成
-        logger.info("  議事録を生成中...")
-        notes = gs.generate_meeting_notes(media_path, model_name=gemini_model)
+        # Whisperで書き起こし → Geminiで議事録生成（2段階方式）
+        logger.info("  Whisperで書き起こし中...")
+        transcript = ws.transcribe(
+            media_path,
+            model_size=whisper_model,
+            language=whisper_language,
+        )
+
+        logger.info("  Gemini APIで議事録を生成中...")
+        notes = gs.generate_meeting_notes_from_transcript(
+            transcript, model_name=gemini_model
+        )
 
         # Googleドキュメントとして保存
         doc_title = make_doc_title(video_name)
@@ -252,12 +265,17 @@ def run(dry_run=False):
     # ffmpegの有無を確認
     has_ffmpeg = shutil.which("ffmpeg") is not None
     if has_ffmpeg:
-        logger.info("ffmpeg検出: MP4→MP3変換を使用してトークン消費を削減します")
+        logger.info("ffmpeg検出: MP4→MP3変換を使用します")
     else:
         logger.warning(
-            "ffmpegが見つかりません。MP4のまま処理します（トークン消費が大きくなります）。"
+            "ffmpegが見つかりません。動画ファイルのまま処理します。"
             "ffmpegのインストールを推奨します。"
         )
+
+    logger.info(
+        f"書き起こし: Whisper (モデル: {config['whisper_model']}, "
+        f"言語: {config['whisper_language']})"
+    )
 
     # API設定・認証
     gs.configure(config["gemini_api_key"])
@@ -331,7 +349,9 @@ def run(dry_run=False):
 
         ok = _process_video(
             video, drive_svc, docs_svc, target_folder_id,
-            config["gemini_model"], has_ffmpeg, processed,
+            config["gemini_model"], has_ffmpeg,
+            config["whisper_model"], config["whisper_language"],
+            processed,
         )
         if ok:
             success_count += 1
