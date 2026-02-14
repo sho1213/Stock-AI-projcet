@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """会議動画 → 議事録 自動生成スクリプト
 
-Google Drive共有ドライブの動画をGemini APIで処理し、
+Google Driveの動画をWhisperで日本語書き起こしし、
 議事録をGoogleドキュメントとしてマイドライブに保存する。
 
 使い方:
@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import drive_service as ds
-import gemini_service as gs
+import transcription_service as ts
 from config import load_config
 
 BASE_DIR = Path(__file__).parent
@@ -60,7 +60,7 @@ def make_doc_title(video_name):
 
 
 def convert_to_mp3(video_path):
-    """MP4をMP3に変換してトークン消費を削減する。
+    """MP4をMP3に変換して書き起こし処理を軽量化する。
 
     Args:
         video_path: 動画ファイルのパス
@@ -145,7 +145,7 @@ def _filter_unprocessed(videos, processed, existing_docs):
 
 
 def _process_video(video, drive_svc, docs_svc, target_folder_id,
-                   gemini_model, has_ffmpeg, processed):
+                   transcriber, has_ffmpeg, processed):
     """1件の動画を処理する（ダウンロード→変換→生成→保存）。
 
     Returns:
@@ -179,9 +179,10 @@ def _process_video(video, drive_svc, docs_svc, target_folder_id,
                 except OSError:
                     pass
 
-        # Gemini APIで議事録を生成
-        logger.info("  議事録を生成中...")
-        notes = gs.generate_meeting_notes(media_path, model_name=gemini_model)
+        # Whisperで日本語書き起こしを実行
+        logger.info("  日本語書き起こしを実行中...")
+        segments = transcriber.transcribe(media_path)
+        notes = ts.render_meeting_notes(video_name, segments)
 
         # Googleドキュメントとして保存
         doc_title = make_doc_title(video_name)
@@ -229,15 +230,19 @@ def run(dry_run=False):
     # ffmpegの有無を確認
     has_ffmpeg = shutil.which("ffmpeg") is not None
     if has_ffmpeg:
-        logger.info("ffmpeg検出: MP4→MP3変換を使用してトークン消費を削減します")
+        logger.info("ffmpeg検出: MP4→MP3変換で書き起こし処理を軽量化します")
     else:
         logger.warning(
-            "ffmpegが見つかりません。MP4のまま処理します（トークン消費が大きくなります）。"
-            "ffmpegのインストールを推奨します。"
+            "ffmpegが見つかりません。MP4のまま処理します。"
+            "faster-whisperのためffmpegのインストールを推奨します。"
         )
 
-    # API設定・認証
-    gs.configure(config["gemini_api_key"])
+    # 書き起こしモデルの準備・認証
+    transcriber = ts.JapaneseTranscriber(
+        compute_type=config["whisper_compute_type"],
+        device=config["whisper_device"],
+    )
+
     logger.info("Google Drive APIに接続中...")
     drive_svc, docs_svc = ds.get_services()
 
@@ -294,6 +299,12 @@ def run(dry_run=False):
             logger.info(f"  - {video['name']} ({size_mb:.1f} MB)")
         return
 
+    # 書き起こしモデルをロード
+    transcriber = ts.JapaneseTranscriber(
+        compute_type=config["whisper_compute_type"],
+        device=config["whisper_device"],
+    )
+
     # 各動画を処理
     success_count = 0
     error_count = 0
@@ -310,7 +321,7 @@ def run(dry_run=False):
 
         ok = _process_video(
             video, drive_svc, docs_svc, target_folder_id,
-            config["gemini_model"], has_ffmpeg, processed,
+            transcriber, has_ffmpeg, processed,
         )
         if ok:
             success_count += 1
@@ -321,7 +332,7 @@ def run(dry_run=False):
             if consecutive_errors >= max_consecutive_errors:
                 logger.error(
                     f"{max_consecutive_errors} 件連続でエラーが発生したため処理を中断します。"
-                    "API枠の超過やネットワーク障害の可能性があります。"
+                    "Whisperモデル障害やネットワーク障害の可能性があります。"
                 )
                 break
 
