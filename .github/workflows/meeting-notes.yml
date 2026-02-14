@@ -1,0 +1,67 @@
+name: Meeting Notes Generator
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # 毎日 6:00 AM JST (UTC+9)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ドライラン（処理せずに対象動画を確認）'
+        type: boolean
+        default: false
+
+jobs:
+  generate-notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: pip install -r meeting_notes/requirements.txt
+
+      - name: Set up Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > meeting_notes/credentials.json
+          echo '${{ secrets.GOOGLE_TOKEN_JSON }}' > meeting_notes/token.json
+
+      - name: Restore processed videos cache
+        uses: actions/cache/restore@v4
+        with:
+          path: meeting_notes/processed_videos.json
+          key: processed-videos-dummy
+          restore-keys: processed-videos-
+
+      - name: Run meeting notes generator
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.0-flash' }}
+          SHARED_DRIVE_NAME: ${{ secrets.SHARED_DRIVE_NAME }}
+          SOURCE_FOLDER_NAME: ${{ secrets.SOURCE_FOLDER_NAME }}
+          TARGET_PARENT_FOLDER_NAME: ${{ secrets.TARGET_PARENT_FOLDER_NAME }}
+          TARGET_FOLDER_NAME: ${{ secrets.TARGET_FOLDER_NAME }}
+          REQUEST_INTERVAL: ${{ vars.REQUEST_INTERVAL || '30' }}
+          MAX_VIDEOS_PER_RUN: ${{ vars.MAX_VIDEOS_PER_RUN || '50' }}
+        run: |
+          cd meeting_notes
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python main.py --dry-run
+          else
+            python main.py
+          fi
+
+      - name: Save processed videos cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: meeting_notes/processed_videos.json
+          key: processed-videos-${{ github.run_id }}
