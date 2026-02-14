@@ -117,7 +117,7 @@ GitHubリポジトリの **Settings → Secrets and variables → Actions → Se
 | `GOOGLE_TOKEN_JSON` | `token.json` の中身をそのまま貼り付け |
 | `GEMINI_API_KEY` | Gemini APIキー |
 | `SHARED_DRIVE_NAME` | 共有ドライブ名（`.env` の `SHARED_DRIVE_NAME` の値） |
-| `SOURCE_FOLDER_NAME` | ソースフォルダ名（`.env` の `SOURCE_FOLDER_NAME` の値） |
+| `SOURCE_FOLDER_NAME` | ソースフォルダ名（例: `録画データ_all`） |
 | `TARGET_PARENT_FOLDER_NAME` | 出力親フォルダ名 |
 | `TARGET_FOLDER_NAME` | 出力フォルダ名 |
 
@@ -160,6 +160,24 @@ cat meeting_notes/token.json
 
 - **認証エラー**: `token.json` のリフレッシュトークンが期限切れの可能性があります。ローカルで `python auth.py` を再実行し、新しい `token.json` の内容で `GOOGLE_TOKEN_JSON` Secretを更新してください
 - **API制限エラー**: `REQUEST_INTERVAL` を大きくするか、`MAX_VIDEOS_PER_RUN` を小さくしてください
+- **二重作成を防ぎたい**: 既存の議事録ドキュメント（`【議事録】動画名`）があれば自動スキップされます
+
+
+### 9-7. この要件向けの推奨設定（無料運用）
+
+以下を設定すると、
+- 共有アイテム内の `録画データ_all` から動画を取得
+- 書き起こし＋議事録生成
+- マイドライブ `チーム石川/議事録` へ保存
+- 毎日1回自動実行
+
+が実現できます。
+
+- `SHARED_DRIVE_NAME`: 空文字（共有ドライブを使わず共有アイテムを検索）
+- `SOURCE_FOLDER_NAME`: `録画データ_all`
+- `TARGET_PARENT_FOLDER_NAME`: `チーム石川`
+- `TARGET_FOLDER_NAME`: `議事録`
+- GitHub Actions の `schedule` は `0 21 * * *`（JSTで毎日6:00）
 
 ## ファイル構成
 
@@ -177,4 +195,7 @@ meeting_notes/
 ├── requirements.txt      # Python依存パッケージ
 ├── setup_guide.md        # このファイル
 └── cron_setup.sh         # cron設定スクリプト
+
+.github/workflows/
+└── meeting-notes.yml     # GitHub Actionsで日次実行
 ```

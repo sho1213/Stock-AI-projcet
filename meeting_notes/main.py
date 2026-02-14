@@ -101,6 +101,31 @@ def _load_config():
     """環境変数を読み込み、設定辞書を返す。"""
     load_dotenv(BASE_DIR / ".env")
 
+    def _get_env_str(name, default):
+        value = os.getenv(name)
+        if value is None:
+            return default
+        value = value.strip()
+        return value if value else default
+
+    def _get_env_int(name, default):
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        raw = raw.strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            logger.warning(
+                "%s の値 '%s' は整数ではないため、デフォルト値 %d を使用します。",
+                name,
+                raw,
+                default,
+            )
+            return default
+
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
         logger.error("GEMINI_API_KEY が設定されていません。.env ファイルを確認してください。")
@@ -108,13 +133,13 @@ def _load_config():
 
     return {
         "gemini_api_key": gemini_api_key,
-        "shared_drive_name": os.getenv("SHARED_DRIVE_NAME", "Jupiter folder"),
-        "source_folder_name": os.getenv("SOURCE_FOLDER_NAME", "02_録画データ_all"),
-        "target_parent_folder_name": os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
-        "target_folder_name": os.getenv("TARGET_FOLDER_NAME", "議事録"),
-        "gemini_model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-        "request_interval": int(os.getenv("REQUEST_INTERVAL", "30")),
-        "max_videos": int(os.getenv("MAX_VIDEOS_PER_RUN", "50")),
+        "shared_drive_name": _get_env_str("SHARED_DRIVE_NAME", ""),
+        "source_folder_name": _get_env_str("SOURCE_FOLDER_NAME", "録画データ_all"),
+        "target_parent_folder_name": _get_env_str("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
+        "target_folder_name": _get_env_str("TARGET_FOLDER_NAME", "議事録"),
+        "gemini_model": _get_env_str("GEMINI_MODEL", "gemini-2.0-flash"),
+        "request_interval": _get_env_int("REQUEST_INTERVAL", 30),
+        "max_videos": _get_env_int("MAX_VIDEOS_PER_RUN", 50),
     }
 
 
