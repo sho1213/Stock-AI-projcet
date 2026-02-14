@@ -108,8 +108,8 @@ def _load_config():
 
     return {
         "gemini_api_key": gemini_api_key,
-        "shared_drive_name": os.getenv("SHARED_DRIVE_NAME", "Jupiter folder"),
-        "source_folder_name": os.getenv("SOURCE_FOLDER_NAME", "02_録画データ_all"),
+        "shared_drive_name": os.getenv("SHARED_DRIVE_NAME", ""),
+        "source_folder_name": os.getenv("SOURCE_FOLDER_NAME", "録画データ_all"),
         "target_parent_folder_name": os.getenv("TARGET_PARENT_FOLDER_NAME", "チーム石川"),
         "target_folder_name": os.getenv("TARGET_FOLDER_NAME", "議事録"),
         "gemini_model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
