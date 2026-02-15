@@ -3,7 +3,28 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from datetime import timedelta
+
+# Windows: nvidia-cublas-cu12 等の pip パッケージに含まれる DLL を
+# ctranslate2 が見つけられるよう事前に登録する
+if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
+    try:
+        import importlib.metadata
+
+        for dist_name in ("nvidia-cublas-cu12", "nvidia-cudnn-cu12"):
+            try:
+                dist = importlib.metadata.distribution(dist_name)
+                for f in dist.files or []:
+                    if str(f).endswith(".dll"):
+                        dll_dir = str((dist.locate_file(f)).resolve().parent)
+                        os.add_dll_directory(dll_dir)
+                        break
+            except importlib.metadata.PackageNotFoundError:
+                pass
+    except Exception:
+        pass
 
 from faster_whisper import WhisperModel
 
