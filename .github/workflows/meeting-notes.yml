@@ -46,20 +46,12 @@ jobs:
           python -m py_compile meeting_notes\drive_service.py
           python -m py_compile meeting_notes\transcription_service.py
 
-      - name: Debug CUDA DLL locations
-        shell: cmd
-        run: |
-          python -c "import sysconfig, os, glob; sp=sysconfig.get_path('platlib'); print('site-packages:', sp); dlls=glob.glob(os.path.join(sp,'nvidia','**','*.dll'), recursive=True); [print(d) for d in dlls[:20]] if dlls else print('No DLLs found in nvidia packages')"
-          where cublas64_12.dll 2>nul || echo cublas64_12.dll not found on PATH
-          dir /s /b "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\*cublas64*" 2>nul || echo No CUDA Toolkit cublas found
-          exit /b 0
-
       - name: Run meeting notes generator
         shell: cmd
         working-directory: meeting_notes
         env:
           WHISPER_DEVICE: cuda
-          WHISPER_COMPUTE_TYPE: float16
+          WHISPER_COMPUTE_TYPE: int8
           REQUEST_INTERVAL: ${{ vars.REQUEST_INTERVAL }}
           MAX_VIDEOS_PER_RUN: ${{ vars.MAX_VIDEOS_PER_RUN }}
         run: |
