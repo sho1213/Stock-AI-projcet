@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from datetime import timedelta
 
 # Windows: nvidia-cublas-cu12 等の pip パッケージに含まれる DLL を
 # ctranslate2 が見つけられるよう PATH と add_dll_directory に登録する
@@ -90,23 +89,11 @@ class JapaneseTranscriber:
         return segment_list
 
 
-def _format_time(seconds: float) -> str:
-    td = timedelta(seconds=max(seconds, 0))
-    total = int(td.total_seconds())
-    h = total // 3600
-    m = (total % 3600) // 60
-    s = total % 60
-    return f"{h:02d}:{m:02d}:{s:02d}"
-
 
 def render_meeting_notes(video_name: str, segments) -> str:
     """書き起こし結果を議事録向けテキストに整形する。"""
     lines = [
         f"# 議事録（自動書き起こし）: {video_name}",
-        "",
-        "## 注意",
-        "- 本文はWhisper (large-v3) による自動書き起こしです。",
-        "- 固有名詞や専門用語は誤認識が含まれる場合があります。",
         "",
         "## 書き起こし全文（日本語）",
     ]
@@ -116,8 +103,7 @@ def render_meeting_notes(video_name: str, segments) -> str:
         return "\n".join(lines)
 
     for seg in segments:
-        ts = f"[{_format_time(seg.start)} - {_format_time(seg.end)}]"
         text = seg.text.strip() if seg.text else "（聞き取り不明）"
-        lines.append(f"- {ts} {text}")
+        lines.append(f"- {text}")
 
     return "\n".join(lines)
