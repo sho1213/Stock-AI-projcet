@@ -45,13 +45,13 @@ def load_config(base_dir: Path, logger):
         )
         request_interval = 5
 
-    max_videos = _get_env_int("MAX_VIDEOS_PER_RUN", 30, logger)
+    max_videos = _get_env_int("MAX_VIDEOS_PER_RUN", 60, logger)
     if max_videos < 0:
         logger.warning(
-            "MAX_VIDEOS_PER_RUN の値 %d は負数のため、デフォルト値 30 を使用します。",
+            "MAX_VIDEOS_PER_RUN の値 %d は負数のため、デフォルト値 60 を使用します。",
             max_videos,
         )
-        max_videos = 30
+        max_videos = 60
 
     return {
         "shared_drive_name": _get_env_str("SHARED_DRIVE_NAME", ""),
