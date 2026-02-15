@@ -15,7 +15,7 @@ on:
 jobs:
   generate-meeting-notes:
     runs-on: [self-hosted, windows, gpu]
-    timeout-minutes: 60
+    timeout-minutes: 720
 
     steps:
       - name: Checkout
