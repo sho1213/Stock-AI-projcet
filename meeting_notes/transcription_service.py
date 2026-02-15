@@ -89,7 +89,6 @@ class JapaneseTranscriber:
         return segment_list
 
 
-
 def render_meeting_notes(video_name: str, segments) -> str:
     """書き起こし結果を議事録向けテキストに整形する。"""
     lines = [
