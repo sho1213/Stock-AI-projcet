@@ -52,6 +52,7 @@ jobs:
           python -c "import sysconfig, os, glob; sp=sysconfig.get_path('platlib'); print('site-packages:', sp); dlls=glob.glob(os.path.join(sp,'nvidia','**','*.dll'), recursive=True); [print(d) for d in dlls[:20]] if dlls else print('No DLLs found in nvidia packages')"
           where cublas64_12.dll 2>nul || echo cublas64_12.dll not found on PATH
           dir /s /b "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\*cublas64*" 2>nul || echo No CUDA Toolkit cublas found
+          exit /b 0
 
       - name: Run meeting notes generator
         shell: cmd
