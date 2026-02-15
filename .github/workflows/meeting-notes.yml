@@ -46,12 +46,6 @@ jobs:
           python -m py_compile meeting_notes\drive_service.py
           python -m py_compile meeting_notes\transcription_service.py
 
-      - name: Add CUDA libraries to PATH
-        shell: cmd
-        run: |
-          for /f "delims=" %%i in ('python -c "import nvidia.cublas; import os; print(os.path.join(os.path.dirname(nvidia.cublas.__file__), 'bin'))"') do echo %%i>> %GITHUB_PATH%
-          for /f "delims=" %%i in ('python -c "import nvidia.cudnn; import os; print(os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'bin'))"') do echo %%i>> %GITHUB_PATH%
-
       - name: Run meeting notes generator
         shell: cmd
         working-directory: meeting_notes
