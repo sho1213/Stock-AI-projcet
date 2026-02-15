@@ -8,23 +8,23 @@ import sys
 from datetime import timedelta
 
 # Windows: nvidia-cublas-cu12 等の pip パッケージに含まれる DLL を
-# ctranslate2 が見つけられるよう事前に登録する
-if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
-    try:
-        import importlib.metadata
+# ctranslate2 が見つけられるよう PATH と add_dll_directory に登録する
+if sys.platform == "win32":
+    import glob
+    import sysconfig
 
-        for dist_name in ("nvidia-cublas-cu12", "nvidia-cudnn-cu12"):
-            try:
-                dist = importlib.metadata.distribution(dist_name)
-                for f in dist.files or []:
-                    if str(f).endswith(".dll"):
-                        dll_dir = str((dist.locate_file(f)).resolve().parent)
-                        os.add_dll_directory(dll_dir)
-                        break
-            except importlib.metadata.PackageNotFoundError:
-                pass
-    except Exception:
-        pass
+    _site = sysconfig.get_path("platlib") or ""
+    _added: set[str] = set()
+    for _pattern in ("cublas*.dll", "cudnn*.dll", "cublasLt*.dll"):
+        for _dll in glob.glob(
+            os.path.join(_site, "nvidia", "**", _pattern), recursive=True
+        ):
+            _d = os.path.dirname(_dll)
+            if _d not in _added:
+                _added.add(_d)
+                os.environ["PATH"] = _d + os.pathsep + os.environ.get("PATH", "")
+                if hasattr(os, "add_dll_directory"):
+                    os.add_dll_directory(_d)
 
 from faster_whisper import WhisperModel
 
